@@ -1,141 +1,132 @@
-# AirBnB Clone - The Console
+# AirBnB Clone - MySQL (v2)
 
 ## Description
 
-AirBnB clone is a multi-step project whose goal is to build a simplified copy of the AirBnB website. Over the course of the project it grows into a complete web application made of:
+AirBnB clone is a multi-step project whose goal is to build a simplified copy
+of the AirBnB website. This second step keeps the command interpreter and the
+`FileStorage` engine from the first step and adds a **MySQL storage engine**
+(`DBStorage`) built with the SQLAlchemy ORM. The same code runs with either
+engine; an environment variable selects which one is used.
 
-- a **command interpreter** to manipulate data without a visual interface (this repository, step one)
-- a **website** (front-end) with static and dynamic pages
-- a **storage engine** (JSON files first, then a database)
-- an **API** that connects the front-end to the data
+## Storage engines
 
-This first step builds the foundation: a data model, a file-based storage engine, and a console to manage objects. Everything built here is reused in the following steps.
+| Engine | Selected with | Persistence |
+| --- | --- | --- |
+| `FileStorage` | `HBNB_TYPE_STORAGE` unset or `file` | JSON file `file.json` |
+| `DBStorage` | `HBNB_TYPE_STORAGE=db` | MySQL tables |
 
-## How it works
+Both engines expose the same methods: `all(cls=None)`, `new(obj)`,
+`save()`, `delete(obj=None)` and `reload()`.
 
-Objects (users, places, reviews, ...) are Python instances of classes that inherit from `BaseModel`. They are persisted with the following flow:
+### Environment variables
 
-```
-instance -> to_dict() -> dictionary -> JSON string -> file.json
-file.json -> JSON string -> dictionary -> instance
-```
-
-The `FileStorage` engine handles this flow, so the rest of the code never needs to know how objects are stored. Every time the program starts, it reloads all previously saved objects from `file.json`.
-
-## Project structure
-
-| Path | Purpose |
+| Variable | Meaning |
 | --- | --- |
-| `console.py` | Entry point of the command interpreter |
-| `models/base_model.py` | `BaseModel`, the parent class of all models |
-| `models/user.py`, `state.py`, `city.py`, `amenity.py`, `place.py`, `review.py` | Classes inheriting from `BaseModel` |
-| `models/engine/file_storage.py` | `FileStorage`, JSON serialization and deserialization |
-| `tests/` | Unit tests, mirroring the project layout |
-| `AUTHORS` | List of contributors |
+| `HBNB_ENV` | `dev` or `test`; with `test`, `DBStorage` drops all tables at start |
+| `HBNB_MYSQL_USER` | MySQL user name |
+| `HBNB_MYSQL_PWD` | MySQL password |
+| `HBNB_MYSQL_HOST` | MySQL host |
+| `HBNB_MYSQL_DB` | MySQL database name |
+| `HBNB_TYPE_STORAGE` | `file` (FileStorage) or `db` (DBStorage) |
+
+## Requirements
+
+- Ubuntu 20.04 LTS, Python 3.8.5, `pycodestyle` 2.7.*
+- MySQL 8.0, SQLAlchemy 1.4.x and `mysqlclient` (the `MySQLdb` driver)
+
+## MySQL setup
+
+Prepare the development and test databases and users (run once, as root):
+
+```
+cat setup_mysql_dev.sql | mysql -hlocalhost -uroot -p
+cat setup_mysql_test.sql | mysql -hlocalhost -uroot -p
+```
+
+| | Development | Test |
+| --- | --- | --- |
+| Database | `hbnb_dev_db` | `hbnb_test_db` |
+| User | `hbnb_dev` | `hbnb_test` |
+| Password | `hbnb_dev_pwd` | `hbnb_test_pwd` |
+
+Each user has all privileges on its own database and `SELECT` on
+`performance_schema`. The scripts can be run again without failing.
 
 ## The command interpreter
 
-### Requirements
-
-- Ubuntu 20.04 LTS
-- Python 3.8.5
-- Code style: `pycodestyle` 2.7.*
-
-### Starting the console
-
-Interactive mode:
+Start it in interactive or non-interactive mode, with either engine:
 
 ```
-$ ./console.py
-(hbnb) help
+./console.py
+echo 'all State' | ./console.py
 
-Documented commands (type help <topic>):
-========================================
-EOF  all  create  destroy  help  quit  show  update
-
-(hbnb) quit
-$
+echo 'create State name="California"' | HBNB_MYSQL_USER=hbnb_dev \
+HBNB_MYSQL_PWD=hbnb_dev_pwd HBNB_MYSQL_HOST=localhost \
+HBNB_MYSQL_DB=hbnb_dev_db HBNB_TYPE_STORAGE=db ./console.py
 ```
-
-Non-interactive mode:
-
-```
-$ echo "help" | ./console.py
-```
-
-### Available classes
-
-`BaseModel`, `User`, `State`, `City`, `Amenity`, `Place`, `Review`
 
 ### Commands
 
 | Command | Usage | Description |
 | --- | --- | --- |
 | `help` | `help [command]` | Lists commands, or shows help for one command |
-| `quit` / `EOF` | `quit` | Exits the program (`EOF` is Ctrl+D) |
-| `create` | `create <class name>` | Creates a new instance, saves it, and prints its id |
-| `show` | `show <class name> <id>` | Prints the string representation of an instance |
+| `quit` / `EOF` | `quit` | Exits the program |
+| `create` | `create <class name> [<key>=<value> ...]` | Creates an instance with optional parameters, saves it and prints its id |
+| `show` | `show <class name> <id>` | Prints an instance |
 | `destroy` | `destroy <class name> <id>` | Deletes an instance and saves the change |
-| `all` | `all [class name]` | Prints all instances, optionally only those of one class |
-| `update` | `update <class name> <id> <attribute name> "<attribute value>"` | Adds or updates one attribute of an instance and saves the change |
+| `all` | `all [class name]` | Prints all instances, optionally of one class |
+| `update` | `update <class name> <id> <attribute name> "<attribute value>"` | Updates one attribute and saves the change |
 
-Notes on `update`:
+### Parameters of `create`
 
-- Only one attribute can be updated at a time; extra arguments are ignored.
-- Values containing spaces must be wrapped in double quotes.
-- `id`, `created_at` and `updated_at` cannot be updated.
+Each parameter is `<key name>=<value>`, where the value is:
 
-### Error messages
+- a **string**: between double quotes, `_` is replaced by a space and an
+  inner double quote is written `\"` (`name="My_little_house"`)
+- a **float**: contains a dot (`latitude=37.773972`)
+- an **integer**: any other number (`number_rooms=4`)
 
-| Message | Meaning |
-| --- | --- |
-| `** class name missing **` | No class name was given |
-| `** class doesn't exist **` | The class name is not a known class |
-| `** instance id missing **` | No id was given |
-| `** no instance found **` | No instance exists for that class name and id |
-| `** attribute name missing **` | `update` was called without an attribute name |
-| `** value missing **` | `update` was called without a value |
-
-### Examples
+A parameter that does not fit these rules is skipped.
 
 ```
-$ ./console.py
-(hbnb) create BaseModel
-49faff9a-6318-451f-87b6-910505c55907
-(hbnb) show BaseModel 49faff9a-6318-451f-87b6-910505c55907
-[BaseModel] (49faff9a-6318-451f-87b6-910505c55907) {'id': '49faff9a-6318-451f-87b6-910505c55907', 'created_at': datetime.datetime(2017, 10, 2, 3, 10, 25, 903293), 'updated_at': datetime.datetime(2017, 10, 2, 3, 10, 25, 903300)}
-(hbnb) update BaseModel 49faff9a-6318-451f-87b6-910505c55907 first_name "Betty"
-(hbnb) all BaseModel
-["[BaseModel] (49faff9a-6318-451f-87b6-910505c55907) {'first_name': 'Betty', ...}"]
-(hbnb) destroy BaseModel 49faff9a-6318-451f-87b6-910505c55907
-(hbnb) show BaseModel 49faff9a-6318-451f-87b6-910505c55907
-** no instance found **
-(hbnb) all MyModel
-** class doesn't exist **
-(hbnb) quit
-$
+(hbnb) create State name="California"
+(hbnb) create Place city_id="0001" user_id="0001" name="My_little_house" number_rooms=4 price_by_night=300 latitude=37.773972
 ```
+
+### Classes
+
+`BaseModel`, `User`, `State`, `City`, `Amenity`, `Place`, `Review`
+
+| Class | Table | Relationships (DBStorage) |
+| --- | --- | --- |
+| `State` | `states` | `cities` (deleting a state deletes its cities) |
+| `City` | `cities` | `places` |
+| `User` | `users` | `places`, `reviews` |
+| `Place` | `places` | `reviews`, `amenities` (many-to-many through `place_amenity`) |
+| `Review` | `reviews` | |
+| `Amenity` | `amenities` | `place_amenities` |
+
+With `FileStorage`, `State.cities`, `Place.reviews` and `Place.amenities` are
+properties that look the related objects up in the storage.
 
 ## Testing
-
-Run all unit tests:
 
 ```
 python3 -m unittest discover tests
 ```
 
-Run a single test file:
+With MySQL (tests for the database engine run only in this mode):
 
 ```
-python3 -m unittest tests/test_models/test_base_model.py
+HBNB_ENV=test HBNB_MYSQL_USER=hbnb_test HBNB_MYSQL_PWD=hbnb_test_pwd \
+HBNB_MYSQL_HOST=localhost HBNB_MYSQL_DB=hbnb_test_db HBNB_TYPE_STORAGE=db \
+python3 -m unittest discover tests
 ```
 
-The tests also pass in non-interactive mode:
-
-```
-echo "python3 -m unittest discover tests" | bash
-```
+Tests that only make sense for one engine are skipped for the other with
+`unittest.skipIf` / `unittest.skipUnless`.
 
 ## Authors
 
-See the [AUTHORS](AUTHORS) file for the list of contributors.
+See the [AUTHORS](AUTHORS) file for the list of contributors, which keeps the
+authors of the original codebase.
