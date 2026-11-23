@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 """Entry point of the AirBnB clone command interpreter."""
 import cmd
+import re
 import shlex
 from models import storage
 from models.base_model import BaseModel
@@ -15,19 +16,45 @@ CLASSES = {"BaseModel": BaseModel, "User": User, "State": State,
            "City": City, "Amenity": Amenity, "Place": Place,
            "Review": Review}
 
+PARAM = re.compile(r'(\w+)=("(?:[^"\\]|\\.)*"|\S+)')
 
-def cast(value, current):
-    """Cast the string value to the type of current, or guess its type."""
-    if isinstance(current, bool) or current is None:
-        pass
-    elif isinstance(current, (int, float, str)):
+
+def parse_value(raw):
+    """Convert the raw text of a parameter value to a str, int or float.
+
+    Raise ValueError if the text does not fit the value syntax.
+    """
+    if raw.startswith('"'):
+        if len(raw) < 2 or not raw.endswith('"'):
+            raise ValueError(raw)
+        return raw[1:-1].replace('\\"', '"').replace("_", " ")
+    if re.fullmatch(r"-?\d+", raw):
+        return int(raw)
+    if re.fullmatch(r"-?\d+\.\d+", raw):
+        return float(raw)
+    raise ValueError(raw)
+
+
+def cast(value, obj, name):
+    """Cast the string value to the type of the attribute name of obj."""
+    kind = None
+    table = getattr(obj, "__table__", None)
+    if table is not None and name in table.columns:
         try:
-            return type(current)(value)
-        except ValueError:
-            return value
-    for kind in (int, float):
+            kind = table.columns[name].type.python_type
+        except NotImplementedError:
+            kind = None
+    current = getattr(obj, name, None)
+    if kind is None and isinstance(current, (int, float, str)):
+        kind = type(current)
+    if kind in (int, float, str):
         try:
             return kind(value)
+        except ValueError:
+            return value
+    for guess in (int, float):
+        try:
+            return guess(value)
         except ValueError:
             continue
     return value
@@ -74,21 +101,34 @@ class HBNBCommand(cmd.Cmd):
             print("** instance id missing **")
             return None
         key = "{}.{}".format(args[0], args[1])
-        obj = storage.all().get(key)
+        obj = storage.all(CLASSES[args[0]]).get(key)
         if obj is None:
             print("** no instance found **")
             return None
         return args, obj
 
     def do_create(self, arg):
-        """Create a new instance, save it and print its id
-        Usage: create <class name>
+        """Create a new instance with optional parameters, print its id
+        Usage: create <class name> <key>=<value> <key>=<value> ...
+        Strings use double quotes and _ for spaces, e.g. name="My_house"
         """
-        parsed = self._parse(arg, need_id=False)
-        if parsed:
-            obj = CLASSES[parsed[0][0]]()
-            obj.save()
-            print(obj.id)
+        args = arg.split(None, 1)
+        if not args:
+            print("** class name missing **")
+            return
+        if args[0] not in CLASSES:
+            print("** class doesn't exist **")
+            return
+        params = {}
+        if len(args) > 1:
+            for key, raw in PARAM.findall(args[1]):
+                try:
+                    params[key] = parse_value(raw)
+                except ValueError:
+                    continue
+        obj = CLASSES[args[0]](**params)
+        obj.save()
+        print(obj.id)
 
     def do_show(self, arg):
         """Print the string representation of an instance
@@ -104,19 +144,21 @@ class HBNBCommand(cmd.Cmd):
         """
         parsed = self._parse(arg)
         if parsed:
-            args = parsed[0]
-            del storage.all()["{}.{}".format(args[0], args[1])]
+            storage.delete(parsed[1])
             storage.save()
 
     def do_all(self, arg):
         """Print all instances, optionally only those of one class
         Usage: all [class name]
         """
-        parsed = self._parse(arg, need_id=False) if arg.strip() else ([], 0)
-        if parsed:
-            name = parsed[0][0] if parsed[0] else None
-            print([str(obj) for key, obj in storage.all().items()
-                   if name is None or key.split(".")[0] == name])
+        if arg.strip():
+            parsed = self._parse(arg, need_id=False)
+            if not parsed:
+                return
+            objects = storage.all(CLASSES[parsed[0][0]])
+        else:
+            objects = storage.all()
+        print([str(obj) for obj in objects.values()])
 
     def do_update(self, arg):
         """Update an attribute of an instance and save the change
@@ -132,8 +174,7 @@ class HBNBCommand(cmd.Cmd):
         if len(args) < 4:
             print("** value missing **")
             return
-        name = args[2]
-        setattr(obj, name, cast(args[3], getattr(obj, name, None)))
+        setattr(obj, args[2], cast(args[3], obj, args[2]))
         obj.save()
 
 
